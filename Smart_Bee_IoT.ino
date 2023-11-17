@@ -158,7 +158,7 @@ void connectToWiFi() {
 }
 
 void sendToThingSpeak(float value1, float value2, float value3, float value4, float value5) {
-  String url = "https://api.thingspeak.com/update?thingspeak_write_api_key=";
+  String url = "https://api.thingspeak.com/update?api_key=";
   url += thingspeak_write_api_key;
 
   url += "&field1";
@@ -189,7 +189,9 @@ void sendToThingSpeak(float value1, float value2, float value3, float value4, fl
   int httpCode = http.GET();
   String payload = http.getString();
 
+  Serial.print("httpCode: ");
   Serial.println(httpCode);
+  Serial.print("payload: ");
   Serial.println(payload);
 
   http.end();
