@@ -1,26 +1,22 @@
 // Include Libraries
-#include <mySD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include "Credentials.h"
 #include "DFRobot_AHT20.h"
-
-// ENS160+AHT2x
 #include "ScioSense_ENS160.h"
+
+// Deep sleep variables
+int TIME_TO_SLEEP = 5;                        // Time to sleep in minutes.
+unsigned long long uS_TO_S_FACTOR = 60000000;  // Time factor that convert micro seconds to minutes.
+RTC_DATA_ATTR int bootCount = 0;              // Variable to store how many times we have boot.
 
 // ScioSense_ENS160      ens160(ENS160_I2CADDR_0);
 ScioSense_ENS160 ens160(ENS160_I2CADDR_1);
 
 // Temperature and Humidity
 DFRobot_AHT20 aht20;
-
-// SD File and String to hold sensor values
-ext::File bee;
-String ens160_val;  // Variable to store sensor values
-String sep = ",";   // Separator
 
 // Variable to store sensor values
 int AQI;
@@ -33,36 +29,8 @@ int R_HP3;
 float temp;
 float humd;
 
-// SD SPI
-#define SD_CLK 14
-#define SD_MISO 2
-#define SD_MOSI 15
-#define SD_CS 13
-
 // Build_in LED
-#define led 25
-
-// OLED
-#define SDA 21
-#define SCL 22
-#define SCREEN_WIDTH 128  // OLED display width, in pixels
-#define SCREEN_HEIGHT 64  // OLED display height, in pixels
-
-#define OLED_RESET -1        // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C  ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-// WiFi credentials
-const char *ssid = "EPAL-PRIVATE";
-const char *password = "epal@yeesi";
-
-// API keys for ThingSpeak
-const char *api_key = "61MGSVMZY8Y52ECM";
-const char *field_01 = "1";  // AQI
-const char *field_02 = "2";  // TVOC
-const char *field_03 = "3";  // eCO2
-const char *field_04 = "4";  // Temperature
-const char *field_05 = "5";  // Relative Humidity
+#define led 13
 
 void setup() {
 
@@ -77,10 +45,6 @@ void setup() {
   pinMode(led, OUTPUT);
   digitalWrite(led, LOW);
 
-  // SD Card ChipSelect Pin Mode
-  pinMode(SD_CS, OUTPUT);
-  digitalWrite(SD_CS, HIGH);
-
   // Initializing AHT2x
   uint8_t status;
   while ((status = aht20.begin()) != 0) {
@@ -89,66 +53,12 @@ void setup() {
     delay(1000);
   }
 
-  // Initializing OLED
-  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
-  display.display();
-  delay(2000);
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(1);
-  display.setCursor(14, 0);
-  display.println("SMART BEE KEEPING");
-  Serial.println("Initializing SD card...");
-  display.setCursor(0, 20);
-  display.print("Initializing SD");
-  for (int i = 0; i < 5; i++) {
-    display.print(".");
-    display.display();
-    delay(500);
-  }
-  display.println(".");
-  display.display();
-  delay(2000);
-
-  // Initializing SD Card
-  while (!SD.begin(SD_CS, SD_MOSI, SD_MISO, SD_CLK)) {
-    Serial.println("SD Initialization failed!");
-    display.setCursor(26, 30);
-    display.print(">> Failed <<");
-    display.display();
-    failAlert(3);
-  }
-
-  Serial.println("SD Initialization done.");
-  display.setCursor(20, 30);
-  display.print(">> Connected <<");
-  display.display();
-  doneAlert(3);
-
-  //Initializing ENS160+AHT2x
-  display.setCursor(0, 45);
-  display.print("Initializing ENS160");
-  for (int i = 0; i < 1; i++) {
-    display.print(".");
-    display.display();
-    delay(500);
-  }
-  display.println(".");
-  display.display();
-
   ens160.begin();
   while (!ens160.available()) {
     Serial.println("ENS160+AHT2x Initialization Failed");
-    display.setCursor(26, 55);
-    display.print(">> Failed <<");
-    display.display();
     failAlert(3);
   }
   Serial.println("ENS160+AHT2x Initialized Successfully.");
-  display.setCursor(20, 55);
-  display.print(">> Connected <<");
-  display.display();
-  display.clearDisplay();
   doneAlert(3);
 
   // Print ENS160 versions
@@ -159,24 +69,10 @@ void setup() {
     Serial.print(ens160.getMinorRev());
     Serial.print(".");
     Serial.println(ens160.getBuild());
-
     Serial.print("\tStandard mode ");
     Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!");
   }
 
-  // Printing header file to SD Card.
-  bee = SD.open("ENS160s.csv", FILE_WRITE);
-  if (bee) {
-    bee.println("AQI, TVOC (ppb), eCO2 (ppm), R HP0 (Ohm), R HP1 (Ohm), R HP2 (Ohm), R HP3 (Ohm), Temp (°C), Humd (%RH)");
-    bee.flush();
-    bee.close();
-  } else {  //  file open error
-    Serial.println("error opening ENS160s.csv");
-    failAlert(3);
-  }
-}
-
-void loop() {
   if (ens160.available()) {
     ens160.measure(true);
     ens160.measureRaw(true);
@@ -198,10 +94,10 @@ void loop() {
 
       Serial.print("Temp: ");
       Serial.print(temp);
-      Serial.print(" °C, ");
+      Serial.print(" °C,\t");
       Serial.print("Humidity: ");
       Serial.print(humd);
-      Serial.println(" %RH");
+      Serial.print(" %RH\t");
     }
 
     // Printing Sensor value on Serial Monitor
@@ -226,25 +122,27 @@ void loop() {
     Serial.print("R HP3: ");
     Serial.print(R_HP3);
     Serial.println("Ohm");
-
-    // Storing sensor value to a variable
-    ens160_val = String(AQI) + sep + String(TVOC) + sep + String(eCO2) + sep + String(R_HP0) + sep + String(R_HP1) + sep + String(R_HP2) + sep + String(R_HP3) + sep + String(temp) + sep + String(humd);
-
-    bee = SD.open("ENS160s.csv", FILE_WRITE);
-    if (bee) {
-      bee.println(ens160_val);
-      bee.flush();
-      bee.close();
-    } else {  //  file open error
-      Serial.println("error opening ENS160s.csv");
-      failAlert(3);
-    }
   }
 
   // Send data to Cloud
   sendToThingSpeak(AQI, TVOC, eCO2, temp, humd);
 
-  delay(20000);
+  // Printing boot number
+  ++bootCount;  // bootCounter Incrementer
+  Serial.println("Boot Number: " + String(bootCount));
+
+  // Set wake_up source
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+
+  // Prepare for sleep
+  Serial.flush();
+  Serial.println("Sleeping");
+
+  // Enable deep sleep
+  esp_deep_sleep_start();
+}
+
+void loop() {
 }
 
 void doneAlert(int freq) {
@@ -266,7 +164,7 @@ void failAlert(int freq) {
 }
 
 void connectToWiFi() {
-  WiFi.begin(ssid, password);
+  WiFi.begin(mySSID, myPASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
@@ -278,30 +176,25 @@ void connectToWiFi() {
 
 void sendToThingSpeak(float value1, float value2, float value3, float value4, float value5) {
   String url = "https://api.thingspeak.com/update?api_key=";
-  url += api_key;
+  url += thingspeak_write_api_key;
 
-  url += "&field";
-  url += field_01;
+  url += "&field1";
   url += "=";
   url += String(value1);
 
-  url += "&field";
-  url += field_02;
+  url += "&field2";
   url += "=";
   url += String(value2);
 
-  url += "&field";
-  url += field_03;
+  url += "&field3";
   url += "=";
   url += String(value3);
 
-  url += "&field";
-  url += field_04;
+  url += "&field4";
   url += "=";
   url += String(value4);
 
-  url += "&field";
-  url += field_05;
+  url += "&field5";
   url += "=";
   url += String(value5);
 
@@ -313,7 +206,9 @@ void sendToThingSpeak(float value1, float value2, float value3, float value4, fl
   int httpCode = http.GET();
   String payload = http.getString();
 
+  Serial.print("httpCode: ");
   Serial.println(httpCode);
+  Serial.print("payload: ");
   Serial.println(payload);
 
   http.end();
